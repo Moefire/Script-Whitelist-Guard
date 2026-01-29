@@ -1,0 +1,108 @@
+name: Publish to PowerShell Gallery
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish Module
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Validate Tag Format
+      shell: pwsh
+      run: |
+        $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
+        if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+          Write-Error "Tag format invalid. Expected: v1.0.0, Got: $tag"
+          exit 1
+        }
+        $version = $tag -replace '^v', ''
+        Write-Host "Publishing version: $version"
+        echo "MODULE_VERSION=$version" >> $env:GITHUB_ENV
+        
+    - name: Update Module Version
+      shell: pwsh
+      run: |
+        $manifestPath = './src/ScriptWhitelistGuard.psd1'
+        $version = $env:MODULE_VERSION
+        
+        # Read manifest content
+        $content = Get-Content $manifestPath -Raw
+        
+        # Update ModuleVersion
+        $content = $content -replace "ModuleVersion\s*=\s*'[\d\.]+'", "ModuleVersion = '$version'"
+        
+        # Write back
+        Set-Content -Path $manifestPath -Value $content -NoNewline
+        
+        Write-Host "Updated module version to $version"
+        
+    - name: Install Dependencies
+      shell: pwsh
+      run: |
+        Set-PSRepository PSGallery -InstallationPolicy Trusted
+        Install-Module -Name Pester -Force -Scope CurrentUser -MinimumVersion 5.0.0 -SkipPublisherCheck
+        Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+        
+    - name: Run Tests Before Publishing
+      shell: pwsh
+      run: |
+        $config = New-PesterConfiguration
+        $config.Run.Path = './tests'
+        $config.Run.PassThru = $true
+        $config.Output.Verbosity = 'Detailed'
+        
+        $result = Invoke-Pester -Configuration $config
+        
+        if ($result.FailedCount -gt 0) {
+          Write-Error "Tests failed. Aborting publish."
+          exit 1
+        }
+        
+    - name: Validate Module Manifest
+      shell: pwsh
+      run: |
+        $manifestPath = './src/ScriptWhitelistGuard.psd1'
+        $manifest = Test-ModuleManifest -Path $manifestPath -ErrorAction Stop
+        
+        Write-Host "Module Manifest Valid" -ForegroundColor Green
+        Write-Host "  Name: $($manifest.Name)"
+        Write-Host "  Version: $($manifest.Version)"
+        Write-Host "  GUID: $($manifest.Guid)"
+        
+    - name: Publish to PowerShell Gallery
+      shell: pwsh
+      env:
+        PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+      run: |
+        if (-not $env:PSGALLERY_API_KEY) {
+          Write-Error "PSGALLERY_API_KEY secret not set. Please configure it in repository secrets."
+          exit 1
+        }
+        
+        $modulePath = './src'
+        
+        try {
+          Publish-Module -Path $modulePath -NuGetApiKey $env:PSGALLERY_API_KEY -Verbose -ErrorAction Stop
+          Write-Host "✓ Successfully published to PowerShell Gallery" -ForegroundColor Green
+        }
+        catch {
+          Write-Error "Failed to publish module: $_"
+          exit 1
+        }
+        
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        generate_release_notes: true
+        files: |
+          ./src/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
