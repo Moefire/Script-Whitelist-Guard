@@ -83,7 +83,7 @@ function Get-WhitelistData {
 .SYNOPSIS
     Saves the whitelist to JSON storage
 #>
-function Set-WhitelistData {
+function Save-WhitelistData {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -162,7 +162,7 @@ function Add-ScriptWhitelist {
         AddedAt = (Get-Date).ToString('o')
     }
     
-    if (Set-WhitelistData -Data $whitelist) {
+    if (Save-WhitelistData -Data $whitelist) {
         Write-Host "✓ Added to whitelist: $resolvedPath" -ForegroundColor Green
         Write-Host "  SHA256: $hash" -ForegroundColor Gray
     }
@@ -177,7 +177,7 @@ function Add-ScriptWhitelist {
     Remove-ScriptWhitelist -Path "C:\Scripts\npm.ps1"
 #>
 function Remove-ScriptWhitelist {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory, Position = 0)]
         [string]$Path
@@ -187,9 +187,11 @@ function Remove-ScriptWhitelist {
     $whitelist = ConvertTo-WhitelistHashtable -Data (Get-WhitelistData)
     
     if ($whitelist.ContainsKey($resolvedPath)) {
-        $whitelist.Remove($resolvedPath)
-        if (Set-WhitelistData -Data $whitelist) {
-            Write-Host "✓ Removed from whitelist: $resolvedPath" -ForegroundColor Yellow
+        if ($PSCmdlet.ShouldProcess($resolvedPath, "Remove from whitelist")) {
+            $whitelist.Remove($resolvedPath)
+            if (Save-WhitelistData -Data $whitelist) {
+                Write-Host "✓ Removed from whitelist: $resolvedPath" -ForegroundColor Yellow
+            }
         }
     }
     else {
