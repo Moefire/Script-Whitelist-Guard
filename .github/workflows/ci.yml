@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test on Windows
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install PSScriptAnalyzer
+      shell: pwsh
+      run: |
+        Set-PSRepository PSGallery -InstallationPolicy Trusted
+        Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+        
+    - name: Install Pester
+      shell: pwsh
+      run: |
+        Install-Module -Name Pester -Force -Scope CurrentUser -MinimumVersion 5.0.0 -SkipPublisherCheck
+        
+    - name: Run PSScriptAnalyzer
+      shell: pwsh
+      run: |
+        $results = Invoke-ScriptAnalyzer -Path ./src -Recurse -Settings PSGallery
+        if ($results) {
+          $results | Format-Table -AutoSize
+          Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)"
+          exit 1
+        }
+        Write-Host "PSScriptAnalyzer: No issues found" -ForegroundColor Green
+        
+    - name: Run Pester Tests
+      shell: pwsh
+      run: |
+        $config = New-PesterConfiguration
+        $config.Run.Path = './tests'
+        $config.Run.PassThru = $true
+        $config.Output.Verbosity = 'Detailed'
+        $config.CodeCoverage.Enabled = $false
+        
+        $result = Invoke-Pester -Configuration $config
+        
+        if ($result.FailedCount -gt 0) {
+          Write-Error "Pester tests failed: $($result.FailedCount) failed out of $($result.TotalCount)"
+          exit 1
+        }
+        
+        Write-Host "All tests passed: $($result.PassedCount)/$($result.TotalCount)" -ForegroundColor Green
+        
+    - name: Validate Module Manifest
+      shell: pwsh
+      run: |
+        $manifestPath = './src/ScriptWhitelistGuard.psd1'
+        $manifest = Test-ModuleManifest -Path $manifestPath -ErrorAction Stop
+        Write-Host "Module manifest is valid" -ForegroundColor Green
+        Write-Host "  Name: $($manifest.Name)"
+        Write-Host "  Version: $($manifest.Version)"
+        Write-Host "  Author: $($manifest.Author)"
