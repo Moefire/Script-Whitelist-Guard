@@ -87,10 +87,16 @@ jobs:
           exit 1
         }
         
-        $modulePath = './src'
+        # Create publish directory structure
+        $publishDir = './publish/ScriptWhitelistGuard'
+        New-Item -Path $publishDir -ItemType Directory -Force | Out-Null
+        
+        # Copy module files
+        Copy-Item './src/ScriptWhitelistGuard.psd1' -Destination $publishDir
+        Copy-Item './src/ScriptWhitelistGuard.psm1' -Destination $publishDir
         
         try {
-          Publish-Module -Path $modulePath -NuGetApiKey $env:PSGALLERY_API_KEY -Verbose -ErrorAction Stop
+          Publish-Module -Path $publishDir -NuGetApiKey $env:PSGALLERY_API_KEY -Verbose -ErrorAction Stop
           Write-Host "✓ Successfully published to PowerShell Gallery" -ForegroundColor Green
         }
         catch {
